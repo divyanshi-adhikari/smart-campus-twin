@@ -1,0 +1,724 @@
+"""
+campus_management.py
+=====================================================================
+Campus Account, Timetable, Faculty Cabin & Venue Management System
+Embeddable module for a larger campus-management application.
+
+USAGE
+-----
+    from campus_management import CampusSystem
+    campus = CampusSystem("campus.db")     # or ":memory:" for testing
+    ... call campus.<method>(...) from your own app / API layer ...
+
+SLOT SYSTEM (reference: attached timetable image)
+--------------------------------------------------------------------
+Each grid cell in the timetable has a code such as "A11", "B21", "C14".
+Cells that share the same *base code* (all characters except the last
+digit) belong to the SAME recurring weekly slot, e.g.:
+
+    A11 (Mon, period 1) + A12 (Wed, period 1) + A13 (Fri, period 1)
+        => one slot group "A1"
+
+Assigning a course to slot-group "A1" for a faculty member automatically
+fills EVERY (day, period) cell that belongs to that group. This mirrors
+how the reference grid is colour-coded (same colour = same slot).
+
+If your institution uses a different slot pattern, edit SLOT_CODE_MAP
+below -- nothing else needs to change.
+=====================================================================
+"""
+
+import sqlite3
+import uuid
+import datetime
+from enum import Enum
+from contextlib import contextmanager
+from typing import Optional, List, Dict, Any
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+class Role(str, Enum):
+    STUDENT = "Student"
+    TEACHING_STAFF = "Teaching Staff"
+    NON_TEACHING_STAFF = "Non-Teaching Staff"
+
+
+class CabinStatus(str, Enum):
+    AVAILABLE = "Available"          # green
+    OCCUPIED = "Occupied"            # red
+    TEMP_UNAVAILABLE = "Temporarily Unavailable"  # yellow
+
+
+class TeachingStatus(str, Enum):
+    TEACHING = "Teaching"
+    FREE = "Free"
+    UNAVAILABLE = "Unavailable"
+
+
+class EventStatus(str, Enum):
+    PENDING = "Pending Approval"
+    APPROVED = "Approved"
+    REJECTED = "Rejected"
+    CANCELLED = "Cancelled"
+    COMPLETED = "Completed"
+
+
+class VenueStatus(str, Enum):
+    AVAILABLE = "Available"          # green
+    BOOKED = "Booked"                # red
+    PENDING = "Pending Approval"     # yellow
+    UNAVAILABLE = "Unavailable"      # black
+
+
+class CoordinatorRequestStatus(str, Enum):
+    PENDING = "Pending"
+    ACCEPTED = "Accepted"
+    REJECTED = "Rejected"
+
+
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+PERIODS = {
+    1: ("08:30", "10:00"),
+    2: ("10:05", "11:35"),
+    3: ("11:40", "13:10"),
+    4: ("13:15", "14:45"),
+    5: ("14:50", "16:20"),
+    6: ("16:25", "17:55"),
+    7: ("18:00", "19:30"),
+}
+
+# ---------------------------------------------------------------------------
+# Slot grid derived from the reference timetable image.
+# code -> (day_name, period_number)
+# ---------------------------------------------------------------------------
+SLOT_CODE_MAP: Dict[str, tuple] = {
+    # Monday
+    "A11": ("Monday", 1), "B11": ("Monday", 2), "C11": ("Monday", 3),
+    "A21": ("Monday", 4), "A14": ("Monday", 5), "B21": ("Monday", 6),
+    "C21": ("Monday", 7),
+    # Tuesday
+    "D11": ("Tuesday", 1), "E11": ("Tuesday", 2), "F11": ("Tuesday", 3),
+    "D21": ("Tuesday", 4), "E14": ("Tuesday", 5), "E21": ("Tuesday", 6),
+    "F21": ("Tuesday", 7),
+    # Wednesday
+    "A12": ("Wednesday", 1), "B12": ("Wednesday", 2), "C12": ("Wednesday", 3),
+    "A22": ("Wednesday", 4), "B14": ("Wednesday", 5), "B22": ("Wednesday", 6),
+    "A24": ("Wednesday", 7),
+    # Thursday
+    "D12": ("Thursday", 1), "E12": ("Thursday", 2), "F12": ("Thursday", 3),
+    "D22": ("Thursday", 4), "F14": ("Thursday", 5), "E22": ("Thursday", 6),
+    "F22": ("Thursday", 7),
+    # Friday
+    "A13": ("Friday", 1), "B13": ("Friday", 2), "C13": ("Friday", 3),
+    "A23": ("Friday", 4), "C14": ("Friday", 5), "B23": ("Friday", 6),
+    "B24": ("Friday", 7),
+}
+
+
+def slot_group_of(code: str) -> str:
+    """Base slot-group id for a cell code (drop the trailing occurrence digit).
+    e.g. 'A11' -> 'A1', 'A12' -> 'A1', 'A21' -> 'A2'
+    """
+    return code[:-1]
+
+
+def build_slot_groups() -> Dict[str, List[tuple]]:
+    """group_id -> list of (day, period) cells belonging to that group."""
+    groups: Dict[str, List[tuple]] = {}
+    for code, (day, period) in SLOT_CODE_MAP.items():
+        groups.setdefault(slot_group_of(code), []).append((day, period))
+    return groups
+
+
+SLOT_GROUPS: Dict[str, List[tuple]] = build_slot_groups()
+
+
+def available_slot_groups() -> List[str]:
+    return sorted(SLOT_GROUPS.keys())
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _new_id(prefix: str = "") -> str:
+    return f"{prefix}{uuid.uuid4().hex[:10]}"
+
+
+def _now() -> str:
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def _time_overlap(s1: str, e1: str, s2: str, e2: str) -> bool:
+    """True if [s1,e1) overlaps [s2,e2). Times as 'HH:MM' strings."""
+    return s1 < e2 and s2 < e1
+
+
+# ---------------------------------------------------------------------------
+# Core system
+# ---------------------------------------------------------------------------
+
+class CampusSystem:
+    def __init__(self, db_path: str = "campus.db"):
+        self.db_path = db_path
+        # A single persistent connection is used (required for ":memory:" DBs,
+        # which vanish once their one-and-only connection closes; it works
+        # equally well for file-backed DBs).
+        self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA foreign_keys = ON")
+        self._init_schema()
+
+    @contextmanager
+    def _conn(self):
+        try:
+            yield self._connection
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def _init_schema(self):
+        with self._conn() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    full_name TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    phone TEXT,
+                    department TEXT,
+                    role TEXT NOT NULL,
+                    profile_pic TEXT,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cabins (
+                    id TEXT PRIMARY KEY,
+                    staff_id TEXT NOT NULL REFERENCES users(id),
+                    cabin_number TEXT,
+                    building TEXT,
+                    department TEXT,
+                    capacity INTEGER,
+                    status TEXT NOT NULL,
+                    occupant_name TEXT,
+                    purpose TEXT,
+                    available_from TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS faculty_timetable (
+                    id TEXT PRIMARY KEY,
+                    faculty_id TEXT NOT NULL REFERENCES users(id),
+                    slot_group TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    period INTEGER NOT NULL,
+                    course_name TEXT,
+                    course_code TEXT,
+                    room_number TEXT,
+                    building TEXT,
+                    section TEXT,
+                    status TEXT NOT NULL,
+                    UNIQUE(faculty_id, day, period)
+                );
+
+                CREATE TABLE IF NOT EXISTS venues (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    building TEXT,
+                    capacity INTEGER,
+                    status TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS events (
+                    id TEXT PRIMARY KEY,
+                    reference_id TEXT UNIQUE,
+                    event_name TEXT NOT NULL,
+                    event_type TEXT,
+                    organizer_id TEXT REFERENCES users(id),
+                    organizer_name TEXT,
+                    date TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT NOT NULL,
+                    venue_id TEXT REFERENCES venues(id),
+                    room_number TEXT,
+                    expected_participants INTEGER,
+                    description TEXT,
+                    coordinator_id TEXT REFERENCES users(id),
+                    coordinator_department TEXT,
+                    contact_info TEXT,
+                    special_requirements TEXT,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS coordinator_requests (
+                    id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL REFERENCES events(id),
+                    faculty_id TEXT NOT NULL REFERENCES users(id),
+                    status TEXT NOT NULL,
+                    requested_at TEXT NOT NULL,
+                    responded_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id),
+                    message TEXT NOT NULL,
+                    is_read INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id TEXT PRIMARY KEY,
+                    actor_id TEXT,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    timestamp TEXT NOT NULL
+                );
+                """
+            )
+
+    # ------------------------------------------------------------------
+    # 1. User registration & roles
+    # ------------------------------------------------------------------
+    def register_user(self, full_name: str, email: str, password_hash: str,
+                       role: Role, phone: str = "", department: str = "",
+                       profile_pic: Optional[str] = None) -> str:
+        user_id = _new_id("USR-")
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO users (id, full_name, email, phone, department,
+                   role, profile_pic, password_hash, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (user_id, full_name, email, phone, department, role.value,
+                 profile_pic, password_hash, _now()),
+            )
+        self._log(user_id, "REGISTER_USER", f"role={role.value}")
+        # auto-create an empty cabin record for staff roles
+        if role in (Role.TEACHING_STAFF, Role.NON_TEACHING_STAFF):
+            self.create_cabin(user_id, cabin_number="", building="", department=department)
+        return user_id
+
+    def get_user(self, user_id: str) -> Optional[dict]:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            return dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # 2. Faculty & staff cabin management
+    # ------------------------------------------------------------------
+    def create_cabin(self, staff_id: str, cabin_number: str, building: str,
+                      department: str, capacity: Optional[int] = None) -> str:
+        cabin_id = _new_id("CAB-")
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO cabins (id, staff_id, cabin_number, building,
+                   department, capacity, status) VALUES (?,?,?,?,?,?,?)""",
+                (cabin_id, staff_id, cabin_number, building, department,
+                 capacity, CabinStatus.AVAILABLE.value),
+            )
+        return cabin_id
+
+    def set_cabin_status(self, staff_id: str, status: CabinStatus,
+                          occupant_name: str = "", purpose: str = "",
+                          available_from: str = "") -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE cabins SET status=?, occupant_name=?, purpose=?,
+                   available_from=? WHERE staff_id=?""",
+                (status.value, occupant_name, purpose, available_from, staff_id),
+            )
+        self._log(staff_id, "CABIN_STATUS_CHANGE", status.value)
+
+    def search_faculty_staff(self, name: str = "", department: str = "",
+                              cabin_number: str = "", building: str = "") -> List[dict]:
+        query = """
+            SELECT u.id, u.full_name, u.role, u.department AS user_dept,
+                   c.cabin_number, c.building, c.status, c.occupant_name,
+                   c.purpose, c.available_from
+            FROM users u JOIN cabins c ON c.staff_id = u.id
+            WHERE u.role IN (?, ?)
+        """
+        params = [Role.TEACHING_STAFF.value, Role.NON_TEACHING_STAFF.value]
+        if name:
+            query += " AND u.full_name LIKE ?"
+            params.append(f"%{name}%")
+        if department:
+            query += " AND u.department LIKE ?"
+            params.append(f"%{department}%")
+        if cabin_number:
+            query += " AND c.cabin_number LIKE ?"
+            params.append(f"%{cabin_number}%")
+        if building:
+            query += " AND c.building LIKE ?"
+            params.append(f"%{building}%")
+        with self._conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # 3. Faculty teaching timetable (slot-group based)
+    # ------------------------------------------------------------------
+    def set_faculty_slot(self, faculty_id: str, slot_group: str, course_name: str,
+                          course_code: str = "", room_number: str = "",
+                          building: str = "", section: str = "",
+                          status: TeachingStatus = TeachingStatus.TEACHING) -> None:
+        """Assign a course to a whole slot group. Fills every (day, period)
+        cell belonging to that group for this faculty member in one call."""
+        if slot_group not in SLOT_GROUPS:
+            raise ValueError(f"Unknown slot group '{slot_group}'. "
+                              f"Valid groups: {available_slot_groups()}")
+        with self._conn() as conn:
+            for day, period in SLOT_GROUPS[slot_group]:
+                conn.execute(
+                    """INSERT INTO faculty_timetable
+                       (id, faculty_id, slot_group, day, period, course_name,
+                        course_code, room_number, building, section, status)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(faculty_id, day, period) DO UPDATE SET
+                         slot_group=excluded.slot_group,
+                         course_name=excluded.course_name,
+                         course_code=excluded.course_code,
+                         room_number=excluded.room_number,
+                         building=excluded.building,
+                         section=excluded.section,
+                         status=excluded.status""",
+                    (_new_id("TT-"), faculty_id, slot_group, day, period,
+                     course_name, course_code, room_number, building, section,
+                     status.value),
+                )
+        self._log(faculty_id, "SET_TIMETABLE_SLOT", slot_group)
+
+    def clear_faculty_slot(self, faculty_id: str, slot_group: str) -> None:
+        if slot_group not in SLOT_GROUPS:
+            raise ValueError(f"Unknown slot group '{slot_group}'")
+        with self._conn() as conn:
+            for day, period in SLOT_GROUPS[slot_group]:
+                conn.execute(
+                    "DELETE FROM faculty_timetable WHERE faculty_id=? AND day=? AND period=?",
+                    (faculty_id, day, period),
+                )
+
+    def get_faculty_timetable(self, faculty_id: str) -> Dict[str, Dict[int, dict]]:
+        """Returns grid[day][period] = row dict (or None if free)."""
+        grid = {d: {p: None for p in PERIODS} for d in DAYS}
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM faculty_timetable WHERE faculty_id=?", (faculty_id,)
+            ).fetchall()
+        for r in rows:
+            grid[r["day"]][r["period"]] = dict(r)
+        return grid
+
+    # ------------------------------------------------------------------
+    # 4-6. Venue booking, event info, conflict detection
+    # ------------------------------------------------------------------
+    def create_venue(self, name: str, building: str = "", capacity: Optional[int] = None) -> str:
+        venue_id = _new_id("VEN-")
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO venues (id, name, building, capacity, status) VALUES (?,?,?,?,?)",
+                (venue_id, name, building, capacity, VenueStatus.AVAILABLE.value),
+            )
+        return venue_id
+
+    def check_venue_availability(self, venue_id: str, date: str, start_time: str,
+                                  end_time: str, room_number: str = "") -> Optional[dict]:
+        """Return the conflicting event dict if the venue/room is already
+        booked for an overlapping time on that date, else None."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM events WHERE venue_id=? AND date=?
+                   AND status IN (?, ?)""",
+                (venue_id, date, EventStatus.PENDING.value, EventStatus.APPROVED.value),
+            ).fetchall()
+        for r in rows:
+            if _time_overlap(start_time, end_time, r["start_time"], r["end_time"]):
+                if not room_number or not r["room_number"] or room_number == r["room_number"]:
+                    return dict(r)
+        return None
+
+    def _check_faculty_coordinator_conflict(self, coordinator_id: str, date: str,
+                                             start_time: str, end_time: str) -> Optional[dict]:
+        if not coordinator_id:
+            return None
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM events WHERE coordinator_id=? AND date=?
+                   AND status IN (?, ?)""",
+                (coordinator_id, date, EventStatus.PENDING.value, EventStatus.APPROVED.value),
+            ).fetchall()
+        for r in rows:
+            if _time_overlap(start_time, end_time, r["start_time"], r["end_time"]):
+                return dict(r)
+        return None
+
+    def request_event_booking(self, event_name: str, event_type: str, organizer_id: str,
+                               organizer_name: str, date: str, start_time: str, end_time: str,
+                               venue_id: str, room_number: str = "", expected_participants: int = 0,
+                               description: str = "", coordinator_id: str = "",
+                               coordinator_department: str = "", contact_info: str = "",
+                               special_requirements: str = "") -> dict:
+        """Validates conflicts, then creates the event in PENDING status.
+        Returns {'success': bool, 'event_id'/'conflict': ...}."""
+        venue_conflict = self.check_venue_availability(venue_id, date, start_time, end_time, room_number)
+        if venue_conflict:
+            return {"success": False, "reason": "venue_conflict", "conflict": venue_conflict}
+
+        coord_conflict = self._check_faculty_coordinator_conflict(coordinator_id, date, start_time, end_time)
+        if coord_conflict:
+            return {"success": False, "reason": "faculty_coordinator_conflict", "conflict": coord_conflict}
+
+        event_id = _new_id("EVT-")
+        reference_id = f"REF-{uuid.uuid4().hex[:8].upper()}"
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO events (id, reference_id, event_name, event_type,
+                   organizer_id, organizer_name, date, start_time, end_time,
+                   venue_id, room_number, expected_participants, description,
+                   coordinator_id, coordinator_department, contact_info,
+                   special_requirements, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (event_id, reference_id, event_name, event_type, organizer_id,
+                 organizer_name, date, start_time, end_time, venue_id, room_number,
+                 expected_participants, description, coordinator_id,
+                 coordinator_department, contact_info, special_requirements,
+                 EventStatus.PENDING.value, _now()),
+            )
+            conn.execute("UPDATE venues SET status=? WHERE id=?",
+                         (VenueStatus.PENDING.value, venue_id))
+        self._log(organizer_id, "REQUEST_EVENT_BOOKING", reference_id)
+
+        if coordinator_id:
+            self.nominate_coordinator(event_id, coordinator_id)
+
+        return {"success": True, "event_id": event_id, "reference_id": reference_id}
+
+    def _set_event_status(self, event_id: str, status: EventStatus, actor_id: str = "") -> None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT venue_id FROM events WHERE id=?", (event_id,)).fetchone()
+            conn.execute("UPDATE events SET status=? WHERE id=?", (status.value, event_id))
+            if row:
+                venue_status = {
+                    EventStatus.APPROVED: VenueStatus.BOOKED,
+                    EventStatus.PENDING: VenueStatus.PENDING,
+                }.get(status, VenueStatus.AVAILABLE)
+                conn.execute("UPDATE venues SET status=? WHERE id=?",
+                             (venue_status.value, row["venue_id"]))
+        self._log(actor_id, "EVENT_STATUS_CHANGE", f"{event_id} -> {status.value}")
+
+    def approve_event(self, event_id: str, actor_id: str = "") -> None:
+        self._set_event_status(event_id, EventStatus.APPROVED, actor_id)
+
+    def reject_event(self, event_id: str, actor_id: str = "") -> None:
+        self._set_event_status(event_id, EventStatus.REJECTED, actor_id)
+
+    def cancel_event(self, event_id: str, actor_id: str = "") -> None:
+        self._set_event_status(event_id, EventStatus.CANCELLED, actor_id)
+
+    def complete_event(self, event_id: str, actor_id: str = "") -> None:
+        self._set_event_status(event_id, EventStatus.COMPLETED, actor_id)
+
+    # ------------------------------------------------------------------
+    # 7. Faculty coordinator workflow
+    # ------------------------------------------------------------------
+    def nominate_coordinator(self, event_id: str, faculty_id: str) -> str:
+        request_id = _new_id("CRQ-")
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO coordinator_requests (id, event_id, faculty_id,
+                   status, requested_at) VALUES (?,?,?,?,?)""",
+                (request_id, event_id, faculty_id,
+                 CoordinatorRequestStatus.PENDING.value, _now()),
+            )
+        self._notify(faculty_id, f"You've been requested as faculty coordinator for event {event_id}.")
+        return request_id
+
+    def respond_to_coordinator_request(self, request_id: str, accept: bool) -> None:
+        status = CoordinatorRequestStatus.ACCEPTED if accept else CoordinatorRequestStatus.REJECTED
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE coordinator_requests SET status=?, responded_at=? WHERE id=?",
+                (status.value, _now(), request_id),
+            )
+            row = conn.execute("SELECT event_id, faculty_id FROM coordinator_requests WHERE id=?",
+                                (request_id,)).fetchone()
+        if row:
+            self._notify_event_organizer(row["event_id"],
+                f"Faculty coordinator {'accepted' if accept else 'rejected'} your event request.")
+
+    def _notify_event_organizer(self, event_id: str, message: str) -> None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT organizer_id FROM events WHERE id=?", (event_id,)).fetchone()
+        if row and row["organizer_id"]:
+            self._notify(row["organizer_id"], message)
+
+    def get_faculty_coordinated_events(self, faculty_id: str) -> List[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE coordinator_id=? ORDER BY date, start_time",
+                (faculty_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # 8. Venue status
+    # ------------------------------------------------------------------
+    def get_venue_status(self, venue_id: str) -> dict:
+        with self._conn() as conn:
+            venue = conn.execute("SELECT * FROM venues WHERE id=?", (venue_id,)).fetchone()
+            bookings = conn.execute(
+                """SELECT * FROM events WHERE venue_id=? AND status IN (?, ?)
+                   AND date >= date('now') ORDER BY date, start_time""",
+                (venue_id, EventStatus.PENDING.value, EventStatus.APPROVED.value),
+            ).fetchall()
+        return {"venue": dict(venue) if venue else None,
+                "upcoming_bookings": [dict(b) for b in bookings]}
+
+    # ------------------------------------------------------------------
+    # 9. Dashboards
+    # ------------------------------------------------------------------
+    def student_dashboard(self, student_id: str) -> dict:
+        with self._conn() as conn:
+            my_events = conn.execute(
+                "SELECT * FROM events WHERE organizer_id=? ORDER BY date DESC",
+                (student_id,),
+            ).fetchall()
+            venues = conn.execute("SELECT * FROM venues").fetchall()
+        upcoming = [dict(e) for e in my_events
+                    if e["status"] == EventStatus.APPROVED.value and e["date"] >= str(datetime.date.today())]
+        return {
+            "my_events": [dict(e) for e in my_events],
+            "booking_status": {e["reference_id"]: e["status"] for e in my_events},
+            "upcoming_events": upcoming,
+            "available_venues": [dict(v) for v in venues if v["status"] == VenueStatus.AVAILABLE.value],
+        }
+
+    def faculty_dashboard(self, faculty_id: str) -> dict:
+        with self._conn() as conn:
+            cabin = conn.execute("SELECT * FROM cabins WHERE staff_id=?", (faculty_id,)).fetchone()
+            pending_requests = conn.execute(
+                """SELECT * FROM coordinator_requests WHERE faculty_id=? AND status=?""",
+                (faculty_id, CoordinatorRequestStatus.PENDING.value),
+            ).fetchall()
+        return {
+            "my_timetable": self.get_faculty_timetable(faculty_id),
+            "cabin_status": dict(cabin) if cabin else None,
+            "events_i_coordinate": self.get_faculty_coordinated_events(faculty_id),
+            "pending_requests": [dict(r) for r in pending_requests],
+        }
+
+    def admin_dashboard(self) -> dict:
+        with self._conn() as conn:
+            users = conn.execute("SELECT * FROM users").fetchall()
+            venues = conn.execute("SELECT * FROM venues").fetchall()
+            bookings = conn.execute("SELECT * FROM events").fetchall()
+            cabins = conn.execute("SELECT * FROM cabins").fetchall()
+        conflicts = self._find_overlapping_bookings([dict(b) for b in bookings])
+        return {
+            "all_users": [dict(u) for u in users],
+            "all_venues": [dict(v) for v in venues],
+            "all_bookings": [dict(b) for b in bookings],
+            "cabin_occupancy": [dict(c) for c in cabins],
+            "event_approvals_pending": [dict(b) for b in bookings if b["status"] == EventStatus.PENDING.value],
+            "conflicts": conflicts,
+        }
+
+    @staticmethod
+    def _find_overlapping_bookings(events: List[dict]) -> List[dict]:
+        active = [e for e in events if e["status"] in (EventStatus.PENDING.value, EventStatus.APPROVED.value)]
+        conflicts = []
+        for i in range(len(active)):
+            for j in range(i + 1, len(active)):
+                a, b = active[i], active[j]
+                if a["venue_id"] == b["venue_id"] and a["date"] == b["date"] and \
+                        _time_overlap(a["start_time"], a["end_time"], b["start_time"], b["end_time"]):
+                    conflicts.append({"event_a": a["reference_id"], "event_b": b["reference_id"],
+                                       "venue_id": a["venue_id"], "date": a["date"]})
+        return conflicts
+
+    # ------------------------------------------------------------------
+    # 10. Notifications / audit log
+    # ------------------------------------------------------------------
+    def _notify(self, user_id: str, message: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO notifications (id, user_id, message, is_read, created_at) VALUES (?,?,?,?,?)",
+                (_new_id("NTF-"), user_id, message, 0, _now()),
+            )
+
+    def get_notifications(self, user_id: str, unread_only: bool = False) -> List[dict]:
+        query = "SELECT * FROM notifications WHERE user_id=?"
+        if unread_only:
+            query += " AND is_read=0"
+        with self._conn() as conn:
+            rows = conn.execute(query, (user_id,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def _log(self, actor_id: str, action: str, details: str = "") -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO audit_log (id, actor_id, action, details, timestamp) VALUES (?,?,?,?,?)",
+                (_new_id("LOG-"), actor_id, action, details, _now()),
+            )
+
+    def get_audit_log(self, limit: int = 100) -> List[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Demo / self-test (only runs when this file is executed directly,
+# so it's safe to `import campus_management` into a larger app)
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    campus = CampusSystem(":memory:")
+
+    prof_id = campus.register_user("Dr. Asha Rao", "asha.rao@college.edu", "hashed_pw",
+                                    Role.TEACHING_STAFF, department="CSE")
+    student_id = campus.register_user("Rahul Verma", "rahul.v@college.edu", "hashed_pw",
+                                       Role.STUDENT, department="CSE")
+
+    campus.set_cabin_status(prof_id, CabinStatus.OCCUPIED, occupant_name="Dr. Asha Rao",
+                             purpose="Student meeting", available_from="15:00")
+
+    # Assign the whole "A1" slot group (Mon/Wed/Fri period 1) in one call
+    campus.set_faculty_slot(prof_id, "A1", course_name="Data Structures",
+                             course_code="CSE201", room_number="204", building="Academic Block 1",
+                             section="CSE-A")
+    print("Slot group A1 maps to:", SLOT_GROUPS["A1"])
+    print("Faculty timetable (Monday):", campus.get_faculty_timetable(prof_id)["Monday"][1])
+
+    venue_id = campus.create_venue("MPH", building="MPH", capacity=300)
+
+    result = campus.request_event_booking(
+        event_name="AI Workshop", event_type="Workshop", organizer_id=student_id,
+        organizer_name="Rahul Verma", date="2026-09-20", start_time="10:00", end_time="12:00",
+        venue_id=venue_id, expected_participants=120, description="Intro to AI",
+        coordinator_id=prof_id, coordinator_department="CSE", contact_info="rahul.v@college.edu",
+        special_requirements="Projector, mic",
+    )
+    print("Booking result:", result)
+
+    # Conflicting booking attempt on the same venue/time
+    clash = campus.request_event_booking(
+        event_name="Robotics Meet", event_type="Club activity", organizer_id=student_id,
+        organizer_name="Rahul Verma", date="2026-09-20", start_time="11:00", end_time="13:00",
+        venue_id=venue_id,
+    )
+    print("Conflicting booking result:", clash)
+
+    print("Student dashboard:", campus.student_dashboard(student_id))
+    print("Faculty dashboard keys:", list(campus.faculty_dashboard(prof_id).keys()))
+    print("Admin dashboard conflicts:", campus.admin_dashboard()["conflicts"])
