@@ -1,0 +1,41 @@
+# Campus Management System (Python module)
+
+A single-file, dependency-free Python module implementing the
+Campus Account, Timetable, Faculty Cabin & Venue Management System.
+Uses SQLite (built into Python), so there is nothing extra to install.
+
+## Open in VS Code
+1. Unzip this folder anywhere on your computer.
+2. In VS Code: `File > Open Folder...` and select the unzipped `campus_project` folder.
+3. Make sure the Python extension is installed (VS Code will prompt you).
+
+## Run the built-in demo
+Open a terminal in VS Code (`Ctrl+`` `` or `` Terminal > New Terminal``) and run:
+
+```
+python campus_management.py
+```
+
+This runs the self-test at the bottom of the file (registers a professor
+and a student, assigns a timetable slot group, books a venue, shows a
+conflicting booking being rejected, and prints all three dashboards).
+It only runs when the file is executed directly — importing it elsewhere
+will not trigger the demo.
+
+## Use it inside a bigger project
+```python
+from campus_management import CampusSystem, Role, CabinStatus
+
+campus = CampusSystem("campus.db")   # creates/opens a local SQLite file
+user_id = campus.register_user("Jane Doe", "jane@college.edu", "hashed_pw", Role.STUDENT)
+```
+
+Copy `campus_management.py` into your project and import it like any
+other module. See the docstring at the top of the file for details on
+the slot-group system (how `A11 + A12 + A13` become one slot `"A1"`).
+
+## Files
+- `campus_management.py` — the full system (users, cabins, timetable,
+  venues, event booking + conflict detection, coordinator workflow,
+  dashboards, notifications, audit log).
+- `README.md` — this file.
