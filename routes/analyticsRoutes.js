@@ -57,4 +57,35 @@ router.get("/", async (req, res) => {
     }
 });
 
+
+/* ---------- AI OCCUPANCY PREDICTION ---------- */
+
+router.post("/predict", async (req, res) => {
+    try {
+
+        const response = await fetch("http://127.0.0.1:8000/predict", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(req.body)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json(data);
+        }
+
+        res.json(data);
+
+    } catch (error) {
+        res.status(500).json({
+            error: "AI service is unavailable",
+            details: error.message
+        });
+    }
+});
+
+
 module.exports = router;
