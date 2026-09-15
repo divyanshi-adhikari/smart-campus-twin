@@ -1,0 +1,21 @@
+{
+  "total_records": 8352,
+  "average_occupancy": 1.6,
+  "maximum_occupancy": 38,
+  "peak_hour": "07:00",
+  "peak_average_occupancy": 4.3,
+  "lowest_hour": "16:00",
+  "lowest_average_occupancy": 0.0,
+  "weekday_average_occupancy": 1.7,
+  "weekend_average_occupancy": 0.03,
+  "highest_average_day": "2021-09-07",
+  "highest_average_day_occupancy": 12.99,
+  "lowest_average_day": "2021-09-09",
+  "lowest_average_day_occupancy": 0.0,
+  "high_occupancy_threshold": 4.0,
+  "high_occupancy_records": 900,
+  "low_occupancy_threshold": 0.0,
+  "low_occupancy_records": 6592,
+  "co2_occupancy_correlation": 0.317,
+  "wifi_occupancy_correlation": 0.887
+}

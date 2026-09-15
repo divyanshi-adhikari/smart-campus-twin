@@ -322,3 +322,49 @@ print(
 print("\n" + "=" * 60)
 print("PATTERN ANALYSIS COMPLETE")
 print("=" * 60)
+
+# ============================================================
+# SAVE PATTERN RESULTS FOR BACKEND
+# ============================================================
+
+import json
+
+pattern_results = {
+    "total_records": int(len(df)),
+    "average_occupancy": round(float(df["occupant_count"].mean()), 2),
+    "maximum_occupancy": int(df["occupant_count"].max()),
+
+    "peak_hour": f"{peak_hour:02d}:00",
+    "peak_average_occupancy": round(float(peak_average), 2),
+
+    "lowest_hour": f"{lowest_hour:02d}:00",
+    "lowest_average_occupancy": round(float(lowest_average), 2),
+
+    "weekday_average_occupancy": round(float(weekday_avg), 2),
+    "weekend_average_occupancy": round(float(weekend_avg), 2),
+
+    "highest_average_day": str(highest_day),
+    "highest_average_day_occupancy": round(float(highest_day_avg), 2),
+
+    "lowest_average_day": str(lowest_day),
+    "lowest_average_day_occupancy": round(float(lowest_day_avg), 2),
+
+    "high_occupancy_threshold": round(float(high_threshold), 2),
+    "high_occupancy_records": int(len(high_occupancy)),
+
+    "low_occupancy_threshold": round(float(low_threshold), 2),
+    "low_occupancy_records": int(len(low_occupancy)),
+
+    "co2_occupancy_correlation": (
+        round(float(co2_corr), 3) if pd.notna(co2_corr) else None
+    ),
+
+    "wifi_occupancy_correlation": (
+        round(float(wifi_corr), 3) if pd.notna(wifi_corr) else None
+    )
+}
+
+with open("pattern_analysis_results.json", "w") as f:
+    json.dump(pattern_results, f, indent=2)
+
+print("\n✅ Pattern results saved to pattern_analysis_results.json")
