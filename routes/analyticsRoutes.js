@@ -88,4 +88,61 @@ router.post("/predict", async (req, res) => {
 });
 
 
+/* ---------- AI ANOMALY RESULTS ---------- */
+
+router.get("/anomalies", async (req, res) => {
+    try {
+        const fs = require("fs");
+        const path = require("path");
+
+        const filePath = path.join(
+            __dirname,
+            "..",
+            "ai",
+            "dataset",
+            "occupancy_anomaly_results.csv"
+        );
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({
+                error: "Anomaly results file not found"
+            });
+        }
+
+        const csvData = fs.readFileSync(filePath, "utf8");
+
+        const lines = csvData.trim().split(/\r?\n/);
+        const headers = lines[0].split(",");
+
+        const results = lines.slice(1).map(line => {
+            const values = line.split(",");
+            const row = {};
+
+            headers.forEach((header, index) => {
+                row[header.trim()] = values[index]?.trim();
+            });
+
+            return row;
+        });
+
+        const anomalies = results.filter(row =>
+            row.is_anomaly &&
+            row.is_anomaly.trim().toLowerCase() === "true"
+        );
+
+        res.json({
+            total_records: results.length,
+            anomaly_count: anomalies.length,
+            anomalies: anomalies,
+            data: results
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            error: error.message
+        });
+    }
+});
+
+
 module.exports = router;
