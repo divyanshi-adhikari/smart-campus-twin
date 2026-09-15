@@ -70,6 +70,6 @@
   "pooled_r2": 0.66,
   "pooled_baseline_persistence_mae": 0.092,
   "pooled_model_beats_baseline": false,
-  "trained_at": "2026-09-15T00:38:46.375999",
+  "trained_at": "2026-09-16T01:20:01.305637",
   "data_source": "ROBOD (NUS Singapore) \u2014 combined_Room1.csv"
 }
