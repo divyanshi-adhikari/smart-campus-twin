@@ -144,5 +144,37 @@ router.get("/anomalies", async (req, res) => {
     }
 });
 
+/* ---------- AI PATTERN ANALYSIS RESULTS ---------- */
+
+router.get("/patterns", async (req, res) => {
+    try {
+        const fs = require("fs");
+        const path = require("path");
+
+        const filePath = path.join(
+            __dirname,
+            "..",
+            "ai",
+            "pattern_analysis_results.json"
+        );
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({
+                error: "Pattern analysis results file not found"
+            });
+        }
+
+        const data = JSON.parse(
+            fs.readFileSync(filePath, "utf8")
+        );
+
+        res.json(data);
+
+    } catch (error) {
+        res.status(500).json({
+            error: error.message
+        });
+    }
+});
 
 module.exports = router;
