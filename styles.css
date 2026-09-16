@@ -287,3 +287,246 @@ code{font-family:var(--mono);color:var(--accent)}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:99px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* =========================================================
+   AI ANALYTICS
+   ========================================================= */
+
+.ai-section{
+  display:grid;
+  grid-template-columns:2fr 1fr;
+  gap:18px;
+  margin:24px 0;
+}
+
+.ai-card-prediction{
+  background:
+    linear-gradient(135deg,
+      color-mix(in oklab,var(--accent) 6%,transparent),
+      transparent 60%),
+    var(--surface);
+}
+.ai-card-prediction .ai-eyebrow{color:var(--accent)}
+
+.ai-card-patterns::after{
+  background:linear-gradient(180deg,var(--accent-2),#a06bff);
+}
+.ai-card-patterns{
+  background:
+    linear-gradient(135deg,
+      color-mix(in oklab,var(--accent-2) 7%,transparent),
+      transparent 60%),
+    var(--surface);
+}
+.ai-card-patterns .ai-eyebrow{color:var(--accent-2)}
+
+.ai-card-anomalies{
+  grid-column:1 / -1; /* full width */
+}
+.ai-card-anomalies::after{
+  background:linear-gradient(180deg,var(--warn),var(--bad));
+}
+.ai-card-anomalies{
+  background:
+    linear-gradient(135deg,
+      color-mix(in oklab,var(--warn) 7%,transparent),
+      transparent 60%),
+    var(--surface);
+}
+.ai-card-anomalies .ai-eyebrow{color:var(--warn)}
+
+.ai-eyebrow{
+  letter-spacing:.22em;
+  font-weight:600;
+  margin-bottom:4px;
+}
+
+/* --- prediction metrics --- */
+.ai-prediction-grid{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:12px;
+  margin-top:18px;
+}
+
+.ai-metric{
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface-2);
+  transition:.25s;
+  position:relative;
+}
+.ai-metric:hover{
+  transform:translateY(-2px);
+  border-color:color-mix(in oklab,var(--accent) 45%,var(--line));
+}
+
+.ai-metric span{
+  display:block;
+  font-size:11px;
+  color:var(--muted);
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  margin-bottom:6px;
+}
+
+.ai-metric b{
+  font-family:var(--mono);
+  font-size:24px;
+  font-weight:600;
+}
+
+/* Colored values inside metric boxes */
+.ai-metric-current b{color:var(--text)}
+.ai-metric-predicted b{color:var(--accent)}
+.ai-metric-change b{color:var(--accent-2)}
+.ai-metric-crowd b{color:var(--ok)}
+.ai-metric-crowd b.is-high{color:var(--bad)}
+.ai-metric-crowd b.is-medium{color:var(--warn)}
+.ai-metric-crowd b.is-low{color:var(--ok)}
+
+/* --- recommendation box --- */
+.ai-recommendation{
+  margin-top:16px;
+  padding:14px 16px;
+  border-radius:12px;
+  background:
+    linear-gradient(135deg,
+      color-mix(in oklab,var(--accent) 10%,transparent),
+      transparent 80%),
+    var(--surface-2);
+  border-left:3px solid var(--accent);
+}
+
+.ai-recommendation p{
+  margin:6px 0 4px;
+  font-size:14px;
+  font-weight:500;
+}
+
+.ai-recommendation small{
+  color:var(--muted);
+  font-size:12px;
+}
+
+.ai-source{
+  margin-top:14px;
+  font-size:11px;
+  color:var(--muted);
+  letter-spacing:.02em;
+}
+
+/* --- patterns stat list --- */
+.ai-stat-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  margin-top:18px;
+}
+
+.ai-stat-list > div{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:8px 10px;
+  border-radius:8px;
+  transition:.2s;
+}
+.ai-stat-list > div:hover{
+  background:color-mix(in oklab,var(--accent-2) 8%,transparent);
+}
+
+.ai-stat-list span{
+  font-size:11px;
+  color:var(--muted);
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.ai-stat-list b{
+  font-family:var(--mono);
+  font-size:15px;
+  color:var(--text);
+}
+
+/* --- anomalies horizontal layout --- */
+.ai-anomaly-content{
+  display:flex;
+  align-items:center;
+  gap:32px;
+  margin-top:20px;
+  flex-wrap:wrap;
+}
+
+.ai-anomaly-main b{
+  display:block;
+  font-size:48px;
+  line-height:1;
+  font-family:var(--mono);
+  font-weight:700;
+  background:linear-gradient(120deg,var(--warn),var(--bad));
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+
+.ai-anomaly-main span{
+  display:block;
+  margin-top:8px;
+  color:var(--muted);
+  font-size:12px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.ai-anomaly-details{
+  display:flex;
+  gap:24px;
+  flex-wrap:wrap;
+}
+
+.ai-anomaly-details > div{
+  padding:12px 16px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--surface-2);
+  min-width:120px;
+}
+
+.ai-anomaly-details span{
+  display:block;
+  font-size:11px;
+  color:var(--muted);
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  margin-bottom:6px;
+}
+
+.ai-anomaly-details b{
+  font-family:var(--mono);
+  font-size:20px;
+}
+
+/* --- responsive --- */
+@media (max-width:1100px){
+  .ai-section{
+    grid-template-columns:1fr;
+  }
+  .ai-card-anomalies{
+    grid-column:auto;
+  }
+}
+
+@media (max-width:640px){
+  .ai-prediction-grid{
+    grid-template-columns:repeat(2,1fr);
+  }
+  .ai-anomaly-content{
+    gap:20px;
+  }
+  .ai-anomaly-main b{
+    font-size:36px;
+  }
+}
