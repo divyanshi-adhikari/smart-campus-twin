@@ -30,21 +30,43 @@ except Exception as error:
 
 try:
     dataset = pd.read_csv(DATASET_PATH)
-    dataset["timestamp"] = pd.to_datetime(dataset["timestamp"], utc=True)
-    dataset = dataset.sort_values("timestamp").reset_index(drop=True)
 
-    # Recreate the feature used during model training
+    dataset["timestamp"] = pd.to_datetime(
+        dataset["timestamp"],
+        utc=True
+    )
+
+    dataset = dataset.sort_values(
+        "timestamp"
+    ).reset_index(drop=True)
+
+    # Recreate feature used during model training
     dataset["days_since_start"] = (
         dataset["timestamp"] - dataset["timestamp"].min()
     ).dt.days
 
     DATASET_LOADED = True
-    print(f"✅ Dataset loaded: {len(dataset)} rows")
+
+    print(
+        f"✅ Dataset loaded: {len(dataset)} rows"
+    )
 
 except Exception as error:
     dataset = None
     DATASET_LOADED = False
-    print(f"⚠ Dataset loading failed: {error}")
+
+    print(
+        f"⚠ Dataset loading failed: {error}"
+    )
+
+
+# ------------------------------------------------------------
+# DEMO DATASET STATE
+# ------------------------------------------------------------
+
+# Used only when the frontend does not send live input.
+# Each request moves to the next historical dataset row.
+demo_index = 0
 
 
 # ------------------------------------------------------------
@@ -95,15 +117,19 @@ def health():
 @app.post("/predict")
 def predict(data: PredictionInput = None):
 
+    global demo_index
+
     if not MODEL_LOADED:
         raise HTTPException(
             status_code=500,
             detail="Occupancy model could not be loaded."
         )
 
+    sample_timestamp = None
+    data_source = "API input"
+
     # --------------------------------------------------------
-    # If frontend does not send data, automatically use
-    # one valid row from the processed training dataset.
+    # USE HISTORICAL DATASET WHEN NO INPUT IS PROVIDED
     # --------------------------------------------------------
 
     if data is None:
@@ -131,8 +157,7 @@ def predict(data: PredictionInput = None):
             "days_since_start"
         ]
 
-        # Check that the processed dataset contains
-        # everything required by the trained model.
+        # Check required columns
         missing_columns = [
             column
             for column in required_columns
@@ -145,9 +170,10 @@ def predict(data: PredictionInput = None):
                 detail=f"Dataset is missing columns: {missing_columns}"
             )
 
+        # Keep only rows usable by the model
         valid_rows = dataset.dropna(
             subset=required_columns
-        )
+        ).reset_index(drop=True)
 
         if valid_rows.empty:
             raise HTTPException(
@@ -155,36 +181,95 @@ def predict(data: PredictionInput = None):
                 detail="No valid rows available in the occupancy dataset."
             )
 
-        # Use the first valid historical row.
-        sample = valid_rows[valid_rows["occupant_count"] > 0].iloc[0]
+        # ----------------------------------------------------
+        # MOVE THROUGH DIFFERENT HISTORICAL DATASET ROWS
+        # ----------------------------------------------------
 
+        # Prefer rows where occupancy is non-zero so the
+        # dashboard does not remain stuck at zero.
+        non_zero_rows = valid_rows[
+            valid_rows["occupant_count"] > 0
+        ].reset_index(drop=True)
+
+        if not non_zero_rows.empty:
+
+            sample = non_zero_rows.iloc[
+                demo_index % len(non_zero_rows)
+            ]
+
+            demo_index += 1
+
+        else:
+
+            sample = valid_rows[
+                demo_index % len(valid_rows)
+            ]
+
+            demo_index += 1
+
+        sample_timestamp = sample["timestamp"].isoformat()
+
+        data_source = (
+            "ROBOD/NUS historical dataset sample"
+        )
+
+        # Create model input from selected historical row
         data = PredictionInput(
-            occupant_count=float(sample["occupant_count"]),
+            occupant_count=float(
+                sample["occupant_count"]
+            ),
+
             occupant_count_lag_30min=float(
                 sample["occupant_count_lag_30min"]
             ),
+
             occupant_count_lag_1h=float(
                 sample["occupant_count_lag_1h"]
             ),
+
             occupant_count_lag_2h=float(
                 sample["occupant_count_lag_2h"]
             ),
-            hour=int(sample["hour"]),
-            day_of_week=int(sample["day_of_week"]),
-            is_weekend=int(sample["is_weekend"]),
-            indoor_co2=float(sample["indoor_co2"]),
-            air_temperature=float(sample["air_temperature"]),
+
+            hour=int(
+                sample["hour"]
+            ),
+
+            day_of_week=int(
+                sample["day_of_week"]
+            ),
+
+            is_weekend=int(
+                sample["is_weekend"]
+            ),
+
+            indoor_co2=float(
+                sample["indoor_co2"]
+            ),
+
+            air_temperature=float(
+                sample["air_temperature"]
+            ),
+
             indoor_relative_humidity=float(
                 sample["indoor_relative_humidity"]
             ),
+
             sound_pressure_level=float(
                 sample["sound_pressure_level"]
             ),
-            illuminance=float(sample["illuminance"]),
+
+            illuminance=float(
+                sample["illuminance"]
+            ),
+
             wifi_connected_devices=float(
                 sample["wifi_connected_devices"]
             ),
-            days_since_start=int(sample["days_since_start"])
+
+            days_since_start=int(
+                sample["days_since_start"]
+            )
         )
 
     # --------------------------------------------------------
@@ -212,28 +297,41 @@ def predict(data: PredictionInput = None):
         [data.model_dump()]
     )[features]
 
+
     # --------------------------------------------------------
-    # PREDICTION
+    # ML PREDICTION
     # --------------------------------------------------------
 
-    # Model predicts CHANGE in occupancy.
+    # The trained Random Forest predicts the CHANGE
+    # in occupancy, not the absolute occupancy.
+
     predicted_delta = float(
         model.predict(input_data)[0]
     )
 
     # Convert predicted change into absolute occupancy.
+
     prediction = (
-        data.occupant_count + predicted_delta
+        data.occupant_count
+        + predicted_delta
     )
 
     # Occupancy cannot be negative.
-    prediction = max(0.0, prediction)
+
+    prediction = max(
+        0.0,
+        prediction
+    )
+
 
     # --------------------------------------------------------
     # RECOMMENDATION
     # --------------------------------------------------------
 
-    recommendation = get_recommendation(prediction)
+    recommendation = get_recommendation(
+        prediction
+    )
+
 
     # --------------------------------------------------------
     # RESPONSE
@@ -241,15 +339,34 @@ def predict(data: PredictionInput = None):
 
     return {
         "current_occupancy": round(
-            data.occupant_count, 2
+            data.occupant_count,
+            2
         ),
+
         "predicted_change": round(
-            predicted_delta, 2
+            predicted_delta,
+            2
         ),
+
         "predicted_occupancy_30min": round(
-            prediction, 2
+            prediction,
+            2
         ),
-        "crowd_level": recommendation["crowd_level"],
-        "recommendation": recommendation["recommendation"],
-        "action": recommendation["action"]
+
+        "crowd_level": recommendation[
+            "crowd_level"
+        ],
+
+        "recommendation": recommendation[
+            "recommendation"
+        ],
+
+        "action": recommendation[
+            "action"
+        ],
+
+        "sample_timestamp": sample_timestamp,
+
+        "data_source": data_source
     }
+
