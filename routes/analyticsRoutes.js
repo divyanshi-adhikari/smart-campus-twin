@@ -68,7 +68,9 @@ router.post("/predict", async (req, res) => {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(req.body)
+            body: Object.keys(req.body || {}).length
+                ? JSON.stringify(req.body)
+                : undefined
         });
 
         const data = await response.json();
