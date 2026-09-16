@@ -226,6 +226,118 @@
 
     <div class="kpi-row" id="kpiRow"><!-- JS --></div>
 
+        <!-- AI ANALYTICS -->
+    <section class="ai-section">
+
+      <!-- 30-MINUTE OCCUPANCY PREDICTION -->
+      <section class="card ai-card ai-card-prediction">
+        <div class="card-head">
+          <div>
+            <p class="tiny ai-eyebrow">AI / FORECAST</p>
+            <h3>30-Minute Occupancy Prediction</h3>
+          </div>
+          <span class="badge badge-live">AI MODEL</span>
+        </div>
+
+        <div class="ai-prediction-grid">
+          <div class="ai-metric ai-metric-current">
+            <span>Current Occupancy</span>
+            <b id="aiCurrentOccupancy">—</b>
+          </div>
+          <div class="ai-metric ai-metric-predicted">
+            <span>Predicted Occupancy</span>
+            <b id="aiPredictedOccupancy">—</b>
+          </div>
+          <div class="ai-metric ai-metric-change">
+            <span>Predicted Change</span>
+            <b id="aiPredictedChange">—</b>
+          </div>
+          <div class="ai-metric ai-metric-crowd">
+            <span>Crowd Level</span>
+            <b id="aiCrowdLevel">—</b>
+          </div>
+        </div>
+
+        <div class="ai-recommendation">
+          <span class="tiny">AI Recommendation</span>
+          <p id="aiRecommendation">Waiting for prediction...</p>
+          <small id="aiAction"></small>
+        </div>
+
+        <p class="ai-source">
+          Prototype prediction using the trained occupancy model and public ROBOD/NUS data.
+        </p>
+      </section>
+
+      <!-- OCCUPANCY PATTERN ANALYSIS -->
+      <section class="card ai-card ai-card-patterns">
+        <div class="card-head">
+          <div>
+            <p class="tiny ai-eyebrow">AI / PATTERNS</p>
+            <h3>Occupancy Patterns</h3>
+          </div>
+          <span class="badge badge-ghost">ANALYTICS</span>
+        </div>
+
+        <div class="ai-stat-list">
+          <div>
+            <span>Peak Hour</span>
+            <b id="aiPeakHour">—</b>
+          </div>
+          <div>
+            <span>Peak Avg.</span>
+            <b id="aiPeakAverage">—</b>
+          </div>
+          <div>
+            <span>Weekday Avg.</span>
+            <b id="aiWeekdayAverage">—</b>
+          </div>
+          <div>
+            <span>Weekend Avg.</span>
+            <b id="aiWeekendAverage">—</b>
+          </div>
+          <div>
+            <span>Wi-Fi Correlation</span>
+            <b id="aiWifiCorrelation">—</b>
+          </div>
+        </div>
+      </section>
+
+      <!-- ANOMALY DETECTION -->
+      <section class="card ai-card ai-card-anomalies">
+        <div class="card-head">
+          <div>
+            <p class="tiny ai-eyebrow">AI / ANOMALIES</p>
+            <h3>Occupancy Anomalies</h3>
+          </div>
+          <span class="badge badge-warn">DETECTION</span>
+        </div>
+
+        <div class="ai-anomaly-content">
+          <div class="ai-anomaly-main">
+            <b id="aiAnomalyCount">—</b>
+            <span>anomalies detected</span>
+          </div>
+
+          <div class="ai-anomaly-details">
+            <div>
+              <span>Total Records</span>
+              <b id="aiAnomalyTotal">—</b>
+            </div>
+            <div>
+              <span>Detection Rate</span>
+              <b id="aiAnomalyRate">—</b>
+            </div>
+          </div>
+        </div>
+
+        <p class="ai-source">
+          Statistical anomaly detection using rolling occupancy behavior.
+        </p>
+      </section>
+
+    </section>
+
     <div class="grid grid-admin">
 
       <!-- OCCUPANCY HEATMAP -->
