@@ -29,6 +29,10 @@ const ENDPOINTS = {
   resources:   "/api/resources",
   notices:     "/api/notices",
   assistant:   "/api/assistant",     // POST { question } -> { answer }
+
+aiPredict:   "http://localhost:3000/analytics/predict",
+aiAnomalies: "http://localhost:3000/analytics/anomalies",
+aiPatterns:  "http://localhost:3000/analytics/patterns",
 };
 
 /* ---------------------------- MOCK JSON ---------------------------- */
@@ -140,6 +144,107 @@ function mockAssistantReply(q) {
   if (s.includes("water")||s.includes("electric")||s.includes("energy"))
     return "Today: 1840 kWh electricity (77% of budget) and 52 kL water. A plumbing anomaly is flagged at Washroom B2.";
   return "I can help with room availability, indoor routes, faculty cabins, crowd forecasts and campus resource usage. Try: “Which labs are free now?”";
+}
+
+/* ============================================================
+   AI ANALYTICS
+   ============================================================ */
+
+async function loadAIPatterns() {
+  try {
+    const response = await fetch(ENDPOINTS.aiPatterns);
+
+    if (!response.ok) {
+      throw new Error("Pattern API failed");
+    }
+
+    const data = await response.json();
+
+    document.getElementById("aiPeakHour").textContent =
+      data.peak_hour ?? "—";
+
+    document.getElementById("aiPeakAverage").textContent =
+      data.peak_average_occupancy ?? "—";
+
+    document.getElementById("aiWeekdayAverage").textContent =
+      data.weekday_average_occupancy ?? "—";
+
+    document.getElementById("aiWeekendAverage").textContent =
+      data.weekend_average_occupancy ?? "—";
+
+    document.getElementById("aiWifiCorrelation").textContent =
+      data.wifi_occupancy_correlation ?? "—";
+
+  } catch (error) {
+    console.error("AI pattern analysis error:", error);
+  }
+}
+
+async function loadAIAnomalies() {
+  try {
+    const response = await fetch(ENDPOINTS.aiAnomalies);
+
+    if (!response.ok) {
+      throw new Error("Anomaly API failed");
+    }
+
+    const data = await response.json();
+
+    document.getElementById("aiAnomalyCount").textContent =
+      data.anomaly_count ?? "—";
+
+    document.getElementById("aiAnomalyTotal").textContent =
+      data.total_records ?? "—";
+
+    const rate =
+      data.total_records > 0
+        ? ((data.anomaly_count / data.total_records) * 100).toFixed(2)
+        : 0;
+
+    document.getElementById("aiAnomalyRate").textContent =
+      `${rate}%`;
+
+  } catch (error) {
+    console.error("AI anomaly detection error:", error);
+  }
+}
+
+async function loadAIPrediction() {
+  try {
+    const response = await fetch("http://localhost:3000/analytics/predict", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || data.error || "Prediction API failed");
+    }
+
+    document.getElementById("aiCurrentOccupancy").textContent =
+      data.current_occupancy;
+
+    document.getElementById("aiPredictedOccupancy").textContent =
+      data.predicted_occupancy_30min;
+
+    document.getElementById("aiPredictedChange").textContent =
+      data.predicted_change;
+
+    document.getElementById("aiCrowdLevel").textContent =
+      data.crowd_level;
+
+    document.getElementById("aiRecommendation").textContent =
+      data.recommendation;
+
+    document.getElementById("aiAction").textContent =
+      data.action;
+
+  } catch (error) {
+    console.error("AI prediction error:", error);
+  }
 }
 
 /* ============================= [2] HELPERS ========================== */
@@ -452,4 +557,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initFaculty();
   await initAdmin();
   initTwinPlaceholder();
+
+  await loadAIPatterns();
+  await loadAIAnomalies();
+  await loadAIPrediction();
 });
