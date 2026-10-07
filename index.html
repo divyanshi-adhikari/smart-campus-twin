@@ -9,6 +9,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./styles.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "./node_modules/three/build/three.module.js",
+    "three/addons/": "./node_modules/three/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 
@@ -66,10 +74,6 @@
         <!-- ▼▼ TEAM HOOK: replace inner content with the 3D canvas/renderer ▼▼ -->
         <div class="map-canvas" id="map-canvas-container" data-hook="3d-canvas">
           <canvas id="twinCanvas"></canvas>
-          <div class="map-overlay">
-            <span class="badge badge-ghost mono">#map-canvas-container</span>
-            <p>Mount the 3D campus model here (Three.js / Babylon).<br />Animated placeholder rendering until then.</p>
-          </div>
           <div class="map-legend">
             <span><i class="sw sw-free"></i> Available</span>
             <span><i class="sw sw-busy"></i> Occupied</span>
@@ -386,6 +390,7 @@
 <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
 <script src="./app.js"></script>
+<script type="module" src="./3d/campusTwin.js"></script>
 </body>
 </html>
 
