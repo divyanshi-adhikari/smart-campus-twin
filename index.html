@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Digital Twin Campus — Student, Faculty & Admin Portals</title>
-<meta name="description" content="Unified smart campus portal: 3D twin navigation, live room availability, resource analytics and maintenance alerts." />
+<meta name="description" content="Unified smart campus portal: 3D twin navigation, live room availability, resource analytics and AI occupancy forecasts." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
@@ -58,7 +58,7 @@
     <div class="hero-strip">
       <div>
         <p class="eyebrow">Student workspace</p>
-        <h2 class="page-title">Find your way, in real time.</h2>
+        <h2 class="page-title">Find a free room, in real time.</h2>
       </div>
       <div class="stat-inline" id="studentQuickStats"><!-- JS --></div>
     </div>
@@ -69,26 +69,12 @@
       <section class="card card-map span-2">
         <div class="card-head">
           <h3>Campus Twin · 3D View</h3>
-          <div class="floor-tabs" id="floorTabs"><!-- JS --></div>
         </div>
         <!-- ▼▼ TEAM HOOK: replace inner content with the 3D canvas/renderer ▼▼ -->
         <div class="map-canvas" id="map-canvas-container" data-hook="3d-canvas">
           <canvas id="twinCanvas"></canvas>
-          <div class="map-legend">
-            <span><i class="sw sw-free"></i> Available</span>
-            <span><i class="sw sw-busy"></i> Occupied</span>
-            <span><i class="sw sw-soon"></i> Soon free</span>
-          </div>
         </div>
         <!-- ▲▲ END TEAM HOOK ▲▲ -->
-        <div class="route-bar" id="routeBar">
-          <span class="mono">ROUTE</span>
-          <select id="routeFrom" class="mini-select"></select>
-          <span class="arrow">→</span>
-          <select id="routeTo" class="mini-select"></select>
-          <button class="btn btn-primary btn-sm" id="routeBtn">Navigate</button>
-          <span class="route-out mono" id="routeOut">—</span>
-        </div>
       </section>
 
       <!-- ROOM SEARCH + AVAILABILITY -->
@@ -98,36 +84,17 @@
           <span class="badge badge-ghost mono" id="roomCount"></span>
         </div>
         <div class="search-wrap">
-          <input id="roomSearch" class="input" type="search" placeholder="Search room, lab, cabin…  e.g. AB-204" autocomplete="off" />
+          <input id="roomSearch" class="input" type="search" placeholder="Search room number, building or type…" autocomplete="off" />
         </div>
         <div class="chips" id="roomFilters">
-          <button class="chip is-active" data-filter="all">All</button>
-          <button class="chip" data-filter="available">Available</button>
-          <button class="chip" data-filter="occupied">Occupied</button>
-          <button class="chip" data-filter="lab">Labs</button>
-          <button class="chip" data-filter="cabin">Cabins</button>
+          <!-- JS -->
         </div>
         <ul class="room-list" id="roomList"><!-- JS --></ul>
       </section>
 
-      <!-- AI ASSISTANT -->
-      <section class="card card-chat">
-        <div class="card-head">
-          <h3>Campus AI Assistant</h3>
-          <span class="badge badge-live">beta</span>
-        </div>
-        <div class="chat-log" id="chatLog"><!-- JS --></div>
-        <div class="chat-suggestions" id="chatSuggestions"><!-- JS --></div>
-        <form class="chat-input" id="chatForm" autocomplete="off">
-          <input id="chatInput" class="input" placeholder="Ask about rooms, routes, crowd…" />
-          <button class="btn btn-primary" type="submit">Send</button>
-        </form>
-      </section>
-
-      <!-- NOTICES / CROWD -->
-      <section class="card">
-        <div class="card-head"><h3>Crowd Pulse</h3><span class="mono tiny">next 3 hrs</span></div>
-        <div class="spark" id="crowdSpark"><!-- JS --></div>
+      <!-- ANNOUNCEMENTS -->
+      <section class="card span-all">
+        <div class="card-head"><h3>Announcements</h3></div>
         <ul class="notice-list" id="noticeList"><!-- JS --></ul>
       </section>
 
@@ -141,7 +108,7 @@
     <div class="hero-strip">
       <div>
         <p class="eyebrow">Faculty workspace</p>
-        <h2 class="page-title">Teach, share, report — one board.</h2>
+        <h2 class="page-title">Find colleagues and rooms — one board.</h2>
       </div>
       <div class="stat-inline" id="facultyQuickStats"></div>
     </div>
@@ -156,63 +123,18 @@
         </div>
         <div class="table-wrap">
           <table class="table" id="facultyTable">
-            <thead><tr><th>Faculty / Room</th><th>Block</th><th>Floor</th><th>Status</th><th>Next slot</th></tr></thead>
+            <thead><tr><th>Faculty / Room</th><th>Block</th><th>Floor</th><th>Status</th></tr></thead>
             <tbody><!-- JS --></tbody>
           </table>
         </div>
       </section>
 
       <!-- LIVE ROOM AVAILABILITY GRID -->
-      <section class="card">
+      <section class="card span-2">
         <div class="card-head"><h3>Room Availability</h3><span class="mono tiny" id="availSummary"></span></div>
         <div class="avail-grid" id="availGrid"><!-- JS --></div>
       </section>
 
-      <!-- RESOURCE SHARING FORM -->
-      <section class="card">
-        <div class="card-head"><h3>Share Academic Resource</h3></div>
-        <form class="form" id="resourceForm">
-          <label>Title<input class="input" name="title" required placeholder="Unit 3 — Digital Twins notes" /></label>
-          <div class="form-row">
-            <label>Course<input class="input" name="course" required placeholder="CSE3012" /></label>
-            <label>Type
-              <select class="input" name="type">
-                <option>Notes</option><option>Slides</option><option>Lab Manual</option><option>Question Bank</option>
-              </select>
-            </label>
-          </div>
-          <label>Link / File reference<input class="input" name="link" placeholder="https://…" /></label>
-          <button class="btn btn-primary" type="submit">Publish to students</button>
-        </form>
-        <ul class="feed" id="resourceFeed"><!-- JS --></ul>
-      </section>
-
-      <!-- MAINTENANCE REPORT -->
-      <section class="card">
-        <div class="card-head"><h3>Report Maintenance Issue</h3></div>
-        <form class="form" id="issueForm">
-          <div class="form-row">
-            <label>Location
-              <select class="input" name="room" id="issueRoom"></select>
-            </label>
-            <label>Category
-              <select class="input" name="category">
-                <option>Electrical</option><option>Plumbing</option><option>Projector / AV</option><option>Furniture</option><option>Network</option>
-              </select>
-            </label>
-          </div>
-          <label>Priority
-            <div class="seg" id="prioritySeg">
-              <button type="button" class="seg-btn" data-val="Low">Low</button>
-              <button type="button" class="seg-btn is-active" data-val="Medium">Medium</button>
-              <button type="button" class="seg-btn" data-val="High">High</button>
-            </div>
-          </label>
-          <label>Description<textarea class="input" name="description" rows="3" placeholder="Projector flickers after 10 min…"></textarea></label>
-          <button class="btn btn-danger" type="submit">Raise ticket</button>
-        </form>
-        <ul class="feed" id="issueFeed"><!-- JS --></ul>
-      </section>
     </div>
   </section>
 
@@ -356,35 +278,16 @@
 
       <!-- UTILITIES -->
       <section class="card">
-        <div class="card-head"><h3>Utility Consumption</h3><span class="mono tiny">vs daily budget</span></div>
+        <div class="card-head"><h3>Utility Consumption</h3><span class="mono tiny">latest reading</span></div>
         <div class="meters" id="utilityMeters"><!-- JS --></div>
       </section>
 
-      <!-- PARKING -->
-      <section class="card">
-        <div class="card-head"><h3>Smart Parking</h3><span class="mono tiny" id="parkSummary"></span></div>
-        <div class="park-lots" id="parkingLots"><!-- JS --></div>
-      </section>
-
-      <!-- MAINTENANCE LOG -->
-      <section class="card span-2">
-        <div class="card-head">
-          <h3>Maintenance Alert Log</h3>
-          <div class="chips" id="alertFilters">
-            <button class="chip is-active" data-sev="all">All</button>
-            <button class="chip" data-sev="High">High</button>
-            <button class="chip" data-sev="Medium">Medium</button>
-            <button class="chip" data-sev="Low">Low</button>
-          </div>
-        </div>
-        <ul class="alert-log" id="alertLog"><!-- JS --></ul>
-      </section>
     </div>
   </section>
 </main>
 
 <footer class="footer">
-  <span class="mono tiny">Digital Twin Campus · Frontend prototype · mock data layer (see <code>DATA_SOURCE</code> in app.js)</span>
+  <span class="mono tiny">Digital Twin Campus · Live data from the campus backend</span>
 </footer>
 
 <div class="toast-stack" id="toastStack" aria-live="polite"></div>
@@ -393,5 +296,3 @@
 <script type="module" src="./3d/campusTwin.js"></script>
 </body>
 </html>
-
-   
